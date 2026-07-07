@@ -7,5 +7,5 @@ C2 - useful exploitation files for OSCP exam
 ```sh
 wget https://github.com/meltingscales/c2/raw/refs/heads/main/Rubeus.exe
 
-then use 'certutil' and 'python -m http.server'
+# then use 'certutil' and 'python -m http.server'
 ```
