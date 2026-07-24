@@ -1,0 +1,54 @@
+Disclaimer: if you want to try this, please get a chip flasher like a ch341a to flash the bios and recover it if anything goes wrong!
+
+My laptop is the HP 15-dw1036ne (amazing name) with BIOS version F.68
+
+HP's bios throws a "BIOS Corruption Detected" message if any modification is detected in the BIOS.
+
+and I couldn't find anyone that unlocked my laptop's bios, so I decided to give Claude Code my bios dump and a few tools for it to try to unlock my bios. and it did!
+
+the rest of this post is written by claude... with a python script at the end that modifies the bios file, which i've tried with my laptop but it might work with similar hp models!
+
+Tools used
+Ghidra (via GhidrAssistMCP): reading and disassembling the BIOS drivers, finding the tab-blocklist function and the signature-check code
+
+https://github.com/symgraph/GhidrAssistMCP
+
+UEFITool / UEFIExtract / UEFIFind: pulled the BIOS image apart into its driver files
+
+Unicorn Engine: ran the extracted signature-check function on its own, outside the real BIOS, against valid and corrupt signatures before flashing real hardware
+
+Capstone: decoded instructions during that emulated test
+
+cryptography (Python library): generated valid test signatures so the emulated check ran against genuine crypto, not fake data
+
+Python (custom scripts): scanned for constants and function calls Ghidra's own analysis missed
+
+Finding #1: RSA-2048 DXE-FV signature check bypass
+HP/Compal sign the whole compressed DXE firmware volume with a detached RSA-2048 signature. Touch a single byte in that volume on stock firmware and you get a "BIOS corruption detected" screen and a refusal to boot.
+
+The verifier is itself LZMA-compressed, so it doesn't show up on a raw byte scan of the flash image; it only exists post-decompression. Its verify function has this tail in both the SHA-256 and SHA-1 code paths:
+
+CALL  RsaVerifyCore
+TEST  AL, AL
+JNZ   ok          ; verify passed
+MOV   EBX, 0x8000001a   ; verify FAILED
+ok:
+RET
+One-byte patch: JNZ (0x75) to JMP (0xEB). The function now always returns success, regardless of what the RSA math decided, without touching the key or signature.
+
+Finding #2: 55 hidden Setup fields
+A bunch of Setup fields are compiled into SetupUtility's IFR forms but gated behind hardcoded boolean constants (SuppressIf{True} / GrayOutIf{True}). Flip the constant byte (TRUE 0x46 to FALSE 0x47) and the field appears. 27 SuppressIf + 28 GrayOutIf occurrences, 55 total, one byte each.
+
+Finding #3: Advanced / Power / Debug / Boot tabs
+FormBrowser.efi decides which tabs show up, and it hides four of them: Advanced, Power, Debug, Boot. The check behind that hiding always comes back negative on this hardware.
+
+One-byte patch: flip that check so it always comes back positive instead. Advanced, Power, Debug, and Boot all show up now.
+
+Mod script
+Python script that takes your own stock dump and reproduces all three patches. This is what produced the image I use on my laptop:
+
+https://files.catbox.moe/gq0uk4.py
+
+hope this is useful to someone out there!
+
+edit: new link for the script
